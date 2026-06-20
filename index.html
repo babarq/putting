@@ -155,6 +155,19 @@
     </div>
 
     <div class="panel">
+      <h2>Zoom</h2>
+      <div class="action-row" style="margin-bottom:10px;align-items:center;">
+        <button id="zoomOutBtn">−</button>
+        <span id="zoomLabel" style="flex:1;text-align:center;font-size:13px;color:var(--text-dim);">100%</span>
+        <button id="zoomInBtn">+</button>
+      </div>
+      <div class="action-row">
+        <button id="panModeBtn">✋ Pan</button>
+        <button id="zoomResetBtn">Reset</button>
+      </div>
+    </div>
+
+    <div class="panel">
       <h2>Drawing tool</h2>
       <div class="tool-grid">
         <button data-tool="pen" class="active-tool">✏️ Pen</button>
@@ -211,8 +224,8 @@
 <script>
 /* ====== 1. EDIT THIS LIST to match the video files you add to your repo's /videos folder ====== */
 const videoList = [
-  { label: "DTL", src: "videos/1792.mp4" },
-  { label: "Front", src: "videos/1794.mp4" },
+  { label: "1792", src: "videos/1792.mp4" },
+  { label: "1794", src: "videos/1794.mp4" },
 ];
 /* =============================================================================================== */
 
@@ -237,6 +250,8 @@ let currentWidth = 4;
 let drawing = false;
 let liveStroke = null;
 let overlayVisible = true;
+let zoomScale = 1, panX = 0, panY = 0, panMode = false, panStart = null;
+const ZOOM_MIN = 1, ZOOM_MAX = 4, ZOOM_STEP = 0.25;
 
 function buildPlayer(src) {
   stage.innerHTML = '';
@@ -269,6 +284,16 @@ function buildPlayer(src) {
 
   attachDrawingEvents();
   strokes = []; redoStack = [];
+  zoomScale = 1; panX = 0; panY = 0; panMode = false; panStart = null;
+  applyTransform(false);
+}
+
+function applyTransform(animate) {
+  if (!stage) return;
+  stage.style.transition = animate ? 'transform 0.15s ease' : 'none';
+  stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+  const label = document.getElementById('zoomLabel');
+  if (label) label.textContent = Math.round(zoomScale * 100) + '%';
 }
 
 function sizeCanvas() {
@@ -298,6 +323,15 @@ function attachDrawingEvents() {
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointerleave', onUp);
+  canvas.addEventListener('wheel', onWheelZoom, { passive: false });
+}
+
+function onWheelZoom(e) {
+  e.preventDefault();
+  const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
+  zoomScale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +(zoomScale + delta).toFixed(2)));
+  if (zoomScale === ZOOM_MIN) { panX = 0; panY = 0; }
+  applyTransform(false);
 }
 
 function relPos(e) {
@@ -306,12 +340,24 @@ function relPos(e) {
 }
 
 function onDown(e) {
+  if (panMode) {
+    panStart = { x: e.clientX, y: e.clientY, panX, panY };
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
   drawing = true;
   redoStack = [];
   const p = relPos(e);
   liveStroke = { tool: currentTool, color: currentColor, width: currentWidth, pts: [p] };
 }
 function onMove(e) {
+  if (panMode) {
+    if (!panStart) return;
+    panX = panStart.panX + (e.clientX - panStart.x);
+    panY = panStart.panY + (e.clientY - panStart.y);
+    applyTransform(false);
+    return;
+  }
   if (!drawing) return;
   const p = relPos(e);
   if (currentTool === 'pen') {
@@ -322,6 +368,11 @@ function onMove(e) {
   redraw(liveStroke);
 }
 function onUp(e) {
+  if (panMode) {
+    panStart = null;
+    canvas.style.cursor = 'grab';
+    return;
+  }
   if (!drawing) return;
   drawing = false;
   if (liveStroke && liveStroke.pts.length >= 2 || (liveStroke && currentTool==='pen' && liveStroke.pts.length>=1)) {
@@ -380,7 +431,29 @@ document.querySelectorAll('[data-tool]').forEach(btn => {
     document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active-tool'));
     btn.classList.add('active-tool');
     currentTool = btn.dataset.tool;
+    panMode = false;
+    document.getElementById('panModeBtn').classList.remove('active-tool');
+    if (canvas) canvas.style.cursor = 'crosshair';
   });
+});
+
+document.getElementById('zoomInBtn').addEventListener('click', () => {
+  zoomScale = Math.min(ZOOM_MAX, +(zoomScale + ZOOM_STEP).toFixed(2));
+  applyTransform(true);
+});
+document.getElementById('zoomOutBtn').addEventListener('click', () => {
+  zoomScale = Math.max(ZOOM_MIN, +(zoomScale - ZOOM_STEP).toFixed(2));
+  if (zoomScale === ZOOM_MIN) { panX = 0; panY = 0; }
+  applyTransform(true);
+});
+document.getElementById('zoomResetBtn').addEventListener('click', () => {
+  zoomScale = 1; panX = 0; panY = 0;
+  applyTransform(true);
+});
+document.getElementById('panModeBtn').addEventListener('click', (e) => {
+  panMode = !panMode;
+  e.currentTarget.classList.toggle('active-tool', panMode);
+  if (canvas) canvas.style.cursor = panMode ? 'grab' : 'crosshair';
 });
 document.querySelectorAll('.swatch').forEach(sw => {
   sw.addEventListener('click', () => {
